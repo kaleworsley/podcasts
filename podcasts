@@ -1,0 +1,68 @@
+#!/usr/bin/env ruby
+
+require 'rubygems'
+require 'xmlsimple'
+require 'psych'
+require 'open-uri'
+require 'fileutils'
+
+trap("SIGINT") { exit! }
+
+# Print exaple config
+def example
+  puts "Example:"
+  example = {
+    'Railscasts' => {
+      'path' => '~/podcasts/railscasts',
+      'url' => 'http://feeds.feedburner.com/railscasts',
+    },
+    'The Changelog' => {
+      'path' => '~/podcasts/thechangelog',
+      'url' => 'http://feeds.feedburner.com/thechangelog',
+    }
+  }
+  puts example.to_yaml
+end
+
+# Exit if the ~/.podcasts.yml file is missing
+unless File.exists? File.expand_path("~/.podcasts.yml")
+  puts "Please create your ~/.podcasts.yml file."
+  example
+  exit
+end
+
+# Load and parse the ~/.podcasts.yml file, exit if it fails
+begin
+  podcasts = YAML.parse_file(File.expand_path("~/.podcasts.yml")).to_ruby
+rescue Psych::SyntaxError 
+  puts "There was a problem parsing your ~/.podcasts.yml file."
+  example
+  exit
+end
+
+# Loop through the podcasts
+podcasts.each do |name, config|
+  puts "Fetching #{name}..."
+  # Fetch rss feed
+  xml = open(config['url']).read
+  # Parse the rss
+  hash = XmlSimple.xml_in(xml)
+  path = File.expand_path(config['path'])
+  # Create the target directory if it doesn't exist
+  FileUtils.mkdir_p(path) unless File.exists? path 
+  # Loop through rss items
+  hash['channel'][0]['item'].each do |item|
+    # Continue if it has an enclosure element
+    if item['enclosure'] && item['enclosure'][0]['url'] != nil
+      item_url = item['enclosure'][0]['url']
+      item_fname = File.basename(item_url)
+      new_path = File.expand_path(item_fname, path)
+      # If the file is not present, download the file and move it into the target directory
+      unless File.exists?(new_path)
+        puts "Downloading #{item_fname}..."
+        temp = open(item_url)
+        FileUtils.mv(temp.path, new_path)
+      end
+    end
+  end
+end
